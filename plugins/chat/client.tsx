@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { createContext, Fragment, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { act, chatName, definePlugin, getDraft, getState, goChat, has, holdReload, openTask, registry, setDraft, setOutbox, setUI, taskOf, useDraft, useSnap, useStore, useUI, type UI } from '@client/kernel.ts'
 import { keyOf, partsOf, priorOf, reasonOf, SEND_TIMEOUT, type Outgoing } from '@client/outbox.ts'
-import { AlertIcon, BackIcon, CameraIcon, CheckIcon, Count, dimmed, Dot, DownIcon, DownloadIcon, EffortIcon, Empty, field, FileIcon, ic, IconButton, LinkButton, LiveWave, MachineIcon, Menu, MenuItem, MenuSeparator, MenuSetting, MicIcon, ModelIcon, ModeIcon, NextIcon, PageIcon, PlanIcon, PlusIcon, Primary, QuestionIcon, ReplyIcon, roundBtn, SearchIcon, Sent, SmileIcon, TextBox, UpIcon, useElapsed, XIcon } from '@client/ui.tsx'
+import { AlertIcon, BackIcon, CameraIcon, CheckIcon, Count, DeleteIcon, dimmed, Dot, DownIcon, DownloadIcon, EffortIcon, Empty, field, FileIcon, ic, IconButton, LinkButton, LiveWave, MachineIcon, Menu, MenuItem, MenuSeparator, MenuSetting, MicIcon, ModelIcon, ModeIcon, MoreIcon, NextIcon, PageIcon, PlanIcon, PlusIcon, Primary, QuestionIcon, ReplyIcon, roundBtn, SearchIcon, Sent, SmileIcon, TextBox, UpIcon, useElapsed, XIcon } from '@client/ui.tsx'
 import { canDictate, dictate, dictSample, type Dictation } from '@client/dictation.ts'
 import { readBrief } from '@shared/brief.ts'
 import { extOf, isImage } from '@shared/files.ts'
@@ -71,9 +71,12 @@ function Bubble({ msg, chat, from, out, last }: { msg: Message; chat: Chat; from
   const picked = usePicked(msg.id, chat.key)
   const selecting = useUI((u) => u.selecting === msg.id)
   const text = useRef<HTMLDivElement>(null)
+  // one on its way isn't a message yet: a hold (or ⋯ with a mouse) offers only to take it out
+  const [menu, setMenu] = useState(false)
+  const pending = out && out.state !== 'failed' ? out : undefined
   // a finger holds a message to react (like iMessage) and slides it right to reply; Select text in the bar lets it
   // select instead, until a tap elsewhere
-  const hold = useHold(canReact && !selecting ? (at) => openBar(chat.key, msg.id, at) : null, replies && !selecting ? () => startReply(chat.key, msg) : null)
+  const hold = useHold(canReact && !selecting ? (at) => openBar(chat.key, msg.id, at) : pending ? () => setMenu(true) : null, replies && !selecting ? () => startReply(chat.key, msg) : null)
   useEffect(() => {
     if (!selecting) return
     if (text.current) getSelection()?.selectAllChildren(text.current)
@@ -116,7 +119,8 @@ function Bubble({ msg, chat, from, out, last }: { msg: Message; chat: Chat; from
       {quoted ? quote : null}
       {anchor}
       {pills}
-      <Beside msg={msg} chat={chat.key} you={you} picked={picked} react={canReact} reply={replies} />
+      <Beside msg={msg} chat={chat.key} you={you} picked={picked || menu} react={canReact} reply={replies} more={pending && (() => setMenu(true))} />
+      {pending && menu ? <PendingMenu out={pending} onClose={() => setMenu(false)} /> : null}
     </div>
   )
   return (
@@ -160,8 +164,8 @@ function Bubble({ msg, chat, from, out, last }: { msg: Message; chat: Chat; from
                   'relative max-w-full min-w-0 text-[0.9375rem]/[1.375rem] text-pretty px-3.5 py-2 phone:px-4 phone:py-2.5 phone:text-base/6',
                   you ? 'rounded-bubble rounded-br-[6px] bg-reply' : 'rounded-bubble rounded-bl-[6px] bg-bubble',
                   you ? 'self-end' : 'self-start',
-                  // on a touch screen a hold reacts, so it doesn't start selecting text or a link's preview
-                  canReact && !selecting && clsx(pressable, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]'),
+                  // on a touch screen a hold reacts (or offers Remove), so it doesn't start selecting text or a link's preview
+                  ((canReact && !selecting) || pending) && clsx(pressable, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]'),
                   // after Select text it selects, though the app's chrome around it doesn't
                   selecting && 'select-text',
                   touchFor(replies && !selecting),
@@ -188,7 +192,7 @@ function Bubble({ msg, chat, from, out, last }: { msg: Message; chat: Chat; from
           : null}
         {msg.file
           ? unit(
-              <div data-anchor {...hold} className={clsx('relative max-w-full select-none [-webkit-touch-callout:none]', canReact && pressable, touchFor(replies), you ? 'self-end' : 'self-start')}>
+              <div data-anchor {...hold} className={clsx('relative max-w-full select-none [-webkit-touch-callout:none]', (canReact || pending) && pressable, touchFor(replies), you ? 'self-end' : 'self-start')}>
                 <FileTile name={msg.file.name} chat={chat.key} path={msg.file.path} tucked={!body && !!quote} />
               </div>,
               !body,
@@ -223,25 +227,51 @@ function waitLine(why: Message['waitsFor']) {
   return 'Goes in once it can be reached'
 }
 
-/** under what didn't go through: why, and Retry or Remove; the words stay in the bubble */
+/** under what didn't go through: why, and Retry or Remove; the words stay in the bubble. One that went in but never came
+ *  back from the agent's log says so calmly: it may well have reached the agent */
 function NotSent({ out, className }: { out: Outgoing; className?: string }) {
   const btn = 'relative font-medium text-fg after:absolute after:-inset-x-1.5 after:-inset-y-2.5 hover:underline'
   return (
-    <div role="alert" className={clsx('mt-1 flex flex-wrap items-center justify-end gap-x-3 gap-y-0.5 text-[0.75rem] text-need phone:text-[0.8125rem]', className)}>
-      <span className="flex items-center gap-1.5">
-        <AlertIcon className="size-3.5 shrink-0" />
-        Not sent. {out.error}
-      </span>
+    <div role="alert" className={clsx('mt-1 flex flex-wrap items-center justify-end gap-x-3 gap-y-0.5 text-[0.75rem] phone:text-[0.8125rem]', out.lost ? 'text-fg2' : 'text-need', className)}>
+      {out.lost ? (
+        <span>Not delivered</span>
+      ) : (
+        <span className="flex items-center gap-1.5">
+          <AlertIcon className="size-3.5 shrink-0" />
+          Not sent. {out.error}
+        </span>
+      )}
       <span className="flex items-center gap-1.5 whitespace-nowrap">
         <button type="button" className={btn} onClick={() => retry(out.cid)}>
           Retry
         </button>
         <span aria-hidden="true" className="text-fg3">·</span>
-        <button type="button" className={btn} onClick={() => setOutbox((all) => all.filter((o) => o.cid !== out.cid))}>
+        <button type="button" className={btn} onClick={() => removeOut(out.cid)}>
           Remove
         </button>
       </span>
     </div>
+  )
+}
+
+/** take one you sent out of the chat, its words and files with it */
+const removeOut = (cid: string) => setOutbox((all) => all.filter((o) => o.cid !== cid))
+
+/** a hold on one still on its way (or ⋯ beside it, with a mouse): Remove takes it out, should it never come back. It
+ *  opens above it: what is on its way is always at the end of the chat, over the box */
+function PendingMenu({ out, onClose }: { out: Outgoing; onClose: () => void }) {
+  return (
+    <Menu label="Message" onClose={onClose} className="absolute right-0 bottom-full z-21 mb-1.5 w-max min-w-0! origin-bottom-right">
+      <MenuItem
+        icon={<DeleteIcon className={ic} />}
+        onClick={() => {
+          onClose()
+          removeOut(out.cid)
+        }}
+      >
+        Remove
+      </MenuItem>
+    </Menu>
   )
 }
 
@@ -413,8 +443,8 @@ function SwipeHint() {
 }
 
 /** with a mouse, a smiley and a reply arrow beside the message (like Slack and WhatsApp on the web) */
-function Beside({ msg, chat, you, picked, react, reply, name, over }: { msg: Message; chat: string; you: boolean; picked: boolean; react: boolean; reply: boolean; name?: string; over?: boolean }) {
-  if (!react && !reply) return null
+function Beside({ msg, chat, you, picked, react, reply, more, name, over }: { msg: Message; chat: string; you: boolean; picked: boolean; react: boolean; reply: boolean; more?: () => void; name?: string; over?: boolean }) {
+  if (!react && !reply && !more) return null
   const btn = over
     ? 'grid size-7 place-items-center rounded-full bg-black/55 text-white backdrop-blur-sm hover:bg-black/70'
     : 'grid size-7 place-items-center rounded-full text-fg3 hover:bg-hover hover:text-fg2'
@@ -439,6 +469,11 @@ function Beside({ msg, chat, you, picked, react, reply, name, over }: { msg: Mes
       {reply ? (
         <button type="button" aria-label={name ? `Reply to ${name}` : 'Reply'} onClick={() => startReply(chat, msg)} className={btn}>
           <ReplyIcon className={ic} />
+        </button>
+      ) : null}
+      {more ? (
+        <button type="button" aria-label={name ? `More for ${name}` : 'More'} aria-haspopup="menu" onClick={more} className={clsx(btn, picked && !over && 'bg-hover text-fg2')}>
+          <MoreIcon className={ic} />
         </button>
       ) : null}
     </div>
@@ -573,7 +608,7 @@ function Album({ msgs, chat, from, out, last: lastPart }: { msgs: Message[]; cha
                 last && c === len - 1 ? (you ? '6px' : big) : small,
                 last && !c ? (you ? big : '6px') : small,
               ].join(' ')
-              return <Tile key={keyOf(m)} msg={m} chat={chat} you={you} radius={radius} single={msgs.length === 1} more={i === 6 ? more : 0} out={!!out} />
+              return <Tile key={keyOf(m)} msg={m} chat={chat} you={you} radius={radius} single={msgs.length === 1} more={i === 6 ? more : 0} out={out} />
             })}
           </div>
         ))}
@@ -585,7 +620,7 @@ function Album({ msgs, chat, from, out, last: lastPart }: { msgs: Message[]; cha
 
 /** one picture in an album, a message of its own: a tap opens it full screen; a hold (or the smiley on it, with a
  *  mouse) reacts, and its reactions sit in its bottom right corner */
-function Tile({ msg, chat, you, radius, single, more, out }: { msg: Message; chat: Chat; you: boolean; radius: string; single: boolean; more: number; out?: boolean }) {
+function Tile({ msg, chat, you, radius, single, more, out }: { msg: Message; chat: Chat; you: boolean; radius: string; single: boolean; more: number; out?: Outgoing }) {
   const f = msg.file!
   // a picture this browser can't show (HEIC on most desktops) is a file tile, or a small one in an album
   const [broken, setBroken] = useState(false)
@@ -593,14 +628,22 @@ function Tile({ msg, chat, you, radius, single, more, out }: { msg: Message; cha
   const canReact = has('reactions') && !msg.waiting && !out
   const replies = canReply(msg, out)
   const picked = usePicked(msg.id, chat.key)
-  const hold = useHold(canReact ? (at) => openBar(chat.key, msg.id, at) : null, replies ? () => startReply(chat.key, msg) : null)
+  // one on its way offers only Remove, as a bubble does
+  const [menu, setMenu] = useState(false)
+  const pending = out && out.state !== 'failed' ? out : undefined
+  const hold = useHold(canReact ? (at) => openBar(chat.key, msg.id, at) : pending ? () => setMenu(true) : null, replies ? () => startReply(chat.key, msg) : null)
   const edge = msg.reactions?.length ? registry.messageEdge.map(({ View }, i) => <View key={i} msg={msg} chat={chat} />) : null
-  const smiley = (beside: boolean) => <Beside msg={msg} chat={chat.key} you={you} picked={picked} react={canReact} reply={replies} name={f.name} over={!beside} />
+  const smiley = (beside: boolean) => (
+    <>
+      <Beside msg={msg} chat={chat.key} you={you} picked={picked || menu} react={canReact} reply={replies} more={pending && (() => setMenu(true))} name={f.name} over={!beside} />
+      {pending && menu ? <PendingMenu out={pending} onClose={() => setMenu(false)} /> : null}
+    </>
+  )
   // on its own it is a file tile like any other file, its reactions on its bottom right corner as on a bubble
   if (broken && single)
     return (
       <div data-msg={msg.id} data-chat={chat.key} data-you={you ? '' : undefined} className="group/msg relative flex max-w-full flex-col">
-        <div data-anchor {...hold} className={clsx('relative max-w-full select-none [-webkit-touch-callout:none]', canReact && pressable, touchFor(replies))}>
+        <div data-anchor {...hold} className={clsx('relative max-w-full select-none [-webkit-touch-callout:none]', (canReact || pending) && pressable, touchFor(replies))}>
           <FileTile name={f.name} chat={chat.key} path={f.path} />
         </div>
         {edge ? <div className="relative -mt-2 flex max-w-full flex-wrap justify-end gap-1 self-end pr-2.5 pl-1 phone:-mt-2.5">{edge}</div> : null}
@@ -618,7 +661,7 @@ function Tile({ msg, chat, you, radius, single, more, out }: { msg: Message; cha
           aria-label={`Download ${f.name}`}
           {...hold}
           style={{ borderRadius: radius }}
-          className={clsx(frame, 'grid size-full place-items-center text-fg2 select-none [-webkit-touch-callout:none] hover:text-fg', canReact && pressable, touchFor(replies))}
+          className={clsx(frame, 'grid size-full place-items-center text-fg2 select-none [-webkit-touch-callout:none] hover:text-fg', (canReact || pending) && pressable, touchFor(replies))}
         >
           <span className="grid justify-items-center gap-0.5 text-[0.6875rem] phone:text-[0.75rem]">
             <FileIcon className={ic} />
@@ -634,7 +677,7 @@ function Tile({ msg, chat, you, radius, single, more, out }: { msg: Message; cha
           // one on its way isn't a message yet: it opens on its own, like a file in the message box
           onClick={() => setUI({ photo: out ? { chat: chat.key, file: f } : { chat: chat.key, msg: msg.id } })}
           style={{ borderRadius: radius }}
-          className={clsx(frame, 'select-none [-webkit-touch-callout:none]', canReact && pressable, touchFor(replies), !single && 'size-full', picked && 'outline-2 outline-offset-2 outline-(--line2)')}
+          className={clsx(frame, 'select-none [-webkit-touch-callout:none]', (canReact || pending) && pressable, touchFor(replies), !single && 'size-full', picked && 'outline-2 outline-offset-2 outline-(--line2)')}
         >
           <img
             src={fileUrl(chat.key, f.path)}

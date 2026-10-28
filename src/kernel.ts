@@ -1,7 +1,7 @@
 // The screen's small kernel: plugin slots, the store (server data + what's on screen), and the link to the server.
 import { useSyncExternalStore, type FC, type ReactNode } from 'react'
 import { buildId } from '@shared/build.ts'
-import { expire, loadOutbox, saveOutbox, settle, type Outgoing } from './outbox.ts'
+import { expire, loadOutbox, prune, saveOutbox, settle, type Outgoing } from './outbox.ts'
 import { keptOf, mayReload, type Kept } from './reload.ts'
 import { OPEN_WITHIN, PONG_WITHIN, retryIn, SAY_LOST_AFTER } from './link.ts'
 import { groupFor, groupTasks, loadAllDone, loadGroups, loadShut, namesFor, saveAllDone, saveGroups, saveShut, shownGroup, type GroupBy, type Groups, type TaskGroup } from './groups.ts'
@@ -678,6 +678,8 @@ let opening: ReturnType<typeof setTimeout> | null = null
 let pinging: ReturnType<typeof setTimeout> | null = null
 let saying: ReturnType<typeof setTimeout> | null = null
 let downSince: number | null = null
+/** the outbox was cleared of what a loading screen drops */
+let pruned = false
 let tried = 0
 
 export function connect() {
@@ -709,6 +711,13 @@ export function connect() {
       state = { ...state, snap: msg.snapshot }
       stayOnShown()
       fromOldPin(msg.snapshot)
+      // once loaded, the first snapshot with every machine in reach says which chats are gone (one connecting or out
+      // of reach may not list its chats yet: then none is dropped); later ones don't, so a failed one left open a day
+      // keeps its Retry
+      if (!pruned && msg.snapshot.machines.every((m) => !m.connecting && m.status !== 'off')) {
+        putOutbox(prune(state.outbox, Date.now(), chatIn(msg.snapshot)))
+        pruned = true
+      }
     } else if (msg.type === 'chat') {
       state = { ...state, chats: { ...state.chats, [msg.chat.key]: msg.chat } }
       putOutbox(settle(state.outbox, msg.chat))
@@ -1100,6 +1109,12 @@ export function placeKind(snap: Snapshot, p: Place) {
 /** the open task's agent, whose chat is on screen */
 export function agentChat(ui: UI, snap: Snapshot) {
   return taskOf(snap, ui.task)?.agent ?? null
+}
+
+/** whether a chat is still there: a space's coordinator's, or a task's agent's (an archived task's too) */
+export function chatIn(snap: Snapshot) {
+  const keys = new Set([...snap.places.map((p) => p.chat), ...snap.tasks.flatMap((t) => (t.agent ? [t.agent.chat] : []))])
+  return (key: string) => keys.has(key)
 }
 
 /** "GTM-15 agent", "gtm" */

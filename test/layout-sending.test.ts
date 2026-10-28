@@ -87,6 +87,38 @@ describe.skipIf(!browser)('what you send shows at once', () => {
     expect(await page.evaluate(() => localStorage.getItem('shepherdr.outbox'))).toBeNull()
     await page.close()
   }, 30_000)
+  test('one still on its way can be taken out from ⋯ beside it; a reload drops day-old ones', async () => {
+    const page = await browser!.newPage({ viewport: { width: 1280, height: 800 } })
+    await page.goto(url())
+    const box = page.getByRole('textbox', { name: /Message/ })
+    await box.waitFor()
+    let release!: () => void
+    sending.hold = new Promise((r) => (release = r))
+    await box.fill('Stuck one')
+    await page.getByRole('button', { name: 'Send' }).click()
+    await bubbles(page, 'Stuck one').waitFor()
+    // a day-old one, saved by an earlier visit, is gone after a reload (one for a chat that is gone too, but only with
+    // every machine in reach, and this world has one out of reach: outbox.test.ts)
+    await page.evaluate(() => {
+      const out = JSON.parse(localStorage.getItem('shepherdr.outbox')!)
+      const o = out[0]
+      out.push({ ...o, cid: 'old', text: 'From yesterday', state: 'sent', at: Date.now() - 25 * 3_600_000 })
+      localStorage.setItem('shepherdr.outbox', JSON.stringify(out))
+    })
+    await page.reload()
+    await bubbles(page, 'Stuck one').waitFor()
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('shepherdr.outbox') ?? '[]').length === 1)
+    expect(await bubbles(page, 'From yesterday').count()).toBe(0)
+    // ⋯ beside it, on hover, offers Remove
+    await bubbles(page, 'Stuck one').hover()
+    await page.locator('[data-msg^="out:"]').getByRole('button', { name: 'More' }).click()
+    await page.getByRole('menu', { name: 'Message' }).getByRole('menuitem', { name: 'Remove' }).click()
+    await bubbles(page, 'Stuck one').waitFor({ state: 'detached' })
+    expect(await page.evaluate(() => localStorage.getItem('shepherdr.outbox'))).toBeNull()
+    release()
+    sending.hold = null
+    await page.close()
+  }, 30_000)
 })
 
 describe.skipIf(!browser)('replies', () => {
