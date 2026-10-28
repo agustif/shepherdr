@@ -4,7 +4,7 @@
 // text could pick an option, or is still starting; then it goes in as soon as it can.
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, watch, type FSWatcher } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Emitter } from '../source.ts'
 import { readJson, writeJson } from '../store.ts'
 import type { TermScreen } from '../../shared/types.ts'
@@ -18,6 +18,7 @@ import * as task from './mfs.ts'
 import { boxDir, mirrored } from './mfs.ts'
 import { runSync } from './box.ts'
 import { leftAtPrompt } from './commands.ts'
+import { paneWrong, type Wrong } from './revive.ts'
 
 /** a Claude Code session, copied into the project folder of the cwd it resumes in (Claude Code looks for it only
  *  there) from wherever it was written on that machine; its log path, or nothing when there is none */
@@ -114,6 +115,9 @@ type Events = {
 
 /** where the hooks of the agents Shepherdr starts record their events */
 export const HOOKS_DIR = join(boxDir(), 'hooks')
+
+/** where an agent's instructions are kept for its CLI to read */
+const promptPath = (name: string) => join(boxDir(), 'prompts', `${name}.md`)
 
 /**
  * The one place an agent's status is decided. What the agent reports of itself wins: its CLI's own hooks today (Claude
@@ -617,11 +621,62 @@ export class Agents extends Emitter<Events> {
 
   /** instructions go in a file: long text with quotes and newlines can't travel as a shell argument */
   private promptFile(r: AgentRecord) {
-    const dir = join(boxDir(), 'prompts')
-    task.mkdirSync(dir, { recursive: true })
-    const f = join(dir, `${r.name}.md`)
+    const f = promptPath(r.name)
+    task.mkdirSync(dirname(f), { recursive: true })
     task.writeFileSync(f, r.system ?? '')
     return f
+  }
+
+  /** the files Shepherdr starts its CLI with now, by flag: its hooks' settings and its instructions. One started with
+   *  others (herdr restored an older command after it restarted) runs without them */
+  filesOf(r: AgentRecord): Record<string, string> {
+    if (r.kind === 'claude') return { '--settings': join(HOOKS_DIR, `${r.name}.settings.json`), ...(r.system ? { '--append-system-prompt-file': promptPath(r.name) } : {}) }
+    if (r.kind === 'pi' && r.system) return { '--append-system-prompt': promptPath(r.name) }
+    return {}
+  }
+
+  /** what is wrong with this agent's run: gone from herdr, its CLI exited in its pane, or it runs on outdated files;
+   *  nothing while it is fine, null when herdr can't say. One on outdated files is left alone while herdr sees it at
+   *  work or asking (a turn is never cut for this); its hooks don't count, as what they last said may be from before */
+  async wrong(key: string): Promise<Wrong | undefined | null> {
+    const r = this.records[key]
+    const a = this.info(key)
+    if (!r) return undefined
+    if (!a) return 'gone'
+    const p = await herdr.processInfo(a.pane_id).catch(() => null)
+    // herdr didn't say: neither well nor wrong
+    if (!p) return null
+    const w = paneWrong(r.kind, p, this.filesOf(r))
+    return w === 'stale' && (a.agent_status === 'working' || a.agent_status === 'blocked') ? undefined : w
+  }
+
+  /** whether its hooks last said it was at work, even while it is gone: a turn its log shows over is over */
+  wasWorking(key: string) {
+    const r = this.records[key]
+    const said = r?.hooks ? this.hooks.read(mirrored(r.hooks)).said : undefined
+    return said?.state === 'working' && !this.endedSince?.(key, said.at)
+  }
+
+  /** being started or stopped right now */
+  busy(key: string) {
+    return this.starting.has(key) || this.stopping.has(key)
+  }
+
+  /** started again by `start` (that resumes its session), its pane closed first where it still holds it (its CLI
+   *  exited, or runs on outdated files). Meanwhile what you send waits for the one it starts, as in a restart */
+  async relaunch(key: string, close: boolean, start: () => Promise<unknown>) {
+    this.stopping.add(key)
+    try {
+      const a = close ? this.info(key) : undefined
+      if (a) {
+        await herdr.closePane(a.pane_id).catch(() => undefined)
+        await this.refresh()
+      }
+      await start()
+    } finally {
+      this.stopping.delete(key)
+      this.deliver(key)
+    }
   }
 
   /** the workspace labelled so, or the one still labelled `was` (never a repo's), renamed to it */
