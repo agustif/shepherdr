@@ -10,18 +10,19 @@ import { readJson, writeJson } from '../store.ts'
 import type { TermScreen } from '../../shared/types.ts'
 import { herdr, Subscription, type AgentInfo, type AgentStatus, type HerdrError, type HerdrEvent } from './herdr.ts'
 import { ClaudeSessions, Reviewers, screenBackground, sessionBackground, type Background } from './readers/background.ts'
-import { claudeHome, claudeLogPath, findClaudeLog, findCodexLog, findLog, findPiLog, logKind } from './readers/find.ts'
+import { claudeHome, claudeLogPath, findLog, grokSessionId, logKind, sessionIdForLog } from './readers/find.ts'
 import { effortFor, modelArg } from './models.ts'
 import { tag } from './chatlines.ts'
 import { hookSettings, HookLogs, type Said } from './readers/hooks.ts'
 import * as task from './mfs.ts'
 import { boxDir, mirrored } from './mfs.ts'
-import { runSync } from './box.ts'
+import { BOX, runSync } from './box.ts'
 import { leftAtPrompt } from './commands.ts'
 import { paneWrong, type Wrong } from './revive.ts'
+import { openCodeEnv } from './opencode-env.ts'
 
 /** a log's name (its session id), wherever it lies: one named both by its mirrored path and by its own is one log */
-const logName = (f: string) => f.slice(f.lastIndexOf('/') + 1)
+const logName = (f: string) => grokSessionId(f) ?? f.slice(f.lastIndexOf('/') + 1)
 
 /** the logs with each one once, where it first came, by the path it was named by last (a session carried to another
  *  folder goes on there): the same log twice is read twice, and a big one holds up the server */
@@ -56,7 +57,7 @@ export interface AgentRecord {
   key: string
   /** herdr agent name */
   name: string
-  /** herdr agent kind: claude, codex, pi */
+  /** herdr agent kind */
   kind: string
   cwd: string
   /** herdr workspace label it lives in */
@@ -102,7 +103,7 @@ export interface OutItem {
 /** what starts an agent: its record, the first thing it is told, and where its pane comes from when it isn't its
  *  workspace by label (a task's herdr worktree space) */
 /** was: the label its workspace had before, renamed in place when that one is still open */
-export type Spec = Omit<AgentRecord, 'logs' | 'started'> & { first?: string; pane?: () => Promise<string>; was?: string }
+export type Spec = Omit<AgentRecord, 'logs' | 'started'> & { first?: string; pane?: (env: Record<string, string>) => Promise<string>; was?: string }
 
 /** why what you send waits: a menu or permission prompt is up, the agent is starting, or (a CLI command) mid-turn */
 export type Hold = 'menu' | 'start' | 'turn'
@@ -458,6 +459,16 @@ export class Agents extends Emitter<Events> {
     const r = this.records[key]
     const s = a?.agent_session
     if (!r || !s) return
+    if (r.kind === 'opencode' || r.kind === 'grok') {
+      const id = s.kind === 'id' ? s.value : sessionIdForLog(r.kind, s.value)
+      const changed = !!id && id !== r.sessionId
+      if (id) r.sessionId = id
+      const file = id ? findLog(r.kind, r.cwd, undefined, id) : undefined
+      const added = !!file && addLog(r, file)
+      if (changed || added) this.save()
+      if (added) this.emit('logs', key)
+      return
+    }
     if (s.kind === 'path' && addLog(r, mirrored(s.value))) {
       this.save()
       this.emit('logs', key)
@@ -493,11 +504,13 @@ export class Agents extends Emitter<Events> {
     if (!r || (r.kind === 'claude' && r.hooks)) return
     const look = () => {
       const f = findLog(r.kind, r.cwd, since - 1000)
-      if (!f || !addLog(r, f)) return
-      // Claude Code and pi resume by the id in its name; Codex by its last log
-      if (r.kind !== 'codex') r.sessionId = f.match(/([0-9a-f-]{36})\.jsonl$/)?.[1] ?? r.sessionId
-      this.save()
-      this.emit('logs', key)
+      if (!f) return
+      const added = addLog(r, f)
+      const id = r.kind === 'codex' ? undefined : sessionIdForLog(r.kind, f)
+      const changed = !!id && id !== r.sessionId
+      if (id) r.sessionId = id
+      if (added || changed) this.save()
+      if (added) this.emit('logs', key)
     }
     // a menu it opened (Codex's /new asks where) may be answered a while later
     for (const ms of [1500, 5000, 15000, 60000, 180000]) setTimeout(look, ms)
@@ -508,8 +521,9 @@ export class Agents extends Emitter<Events> {
     const r = this.records[key]
     if (!r) return
     const since = r.started - 5000
-    const f = r.kind === 'claude' ? (r.sessionId ? claudeLogPath(r.cwd, r.sessionId) : findClaudeLog(r.cwd, since)) : r.kind === 'codex' ? findCodexLog(r.cwd, since) : r.kind === 'pi' ? findPiLog(r.cwd, since) : undefined
+    const f = findLog(r.kind, r.cwd, since, r.sessionId)
     if (f && addLog(r, f)) {
+      if (r.kind !== 'codex') r.sessionId = sessionIdForLog(r.kind, f) ?? r.sessionId
       this.save()
       this.emit('logs', key)
     }
@@ -568,7 +582,7 @@ export class Agents extends Emitter<Events> {
     const from = old?.cwd
     Object.assign(r, { name: spec.name, kind: spec.kind, cwd: spec.cwd, workspace: spec.workspace, tab: spec.tab ?? r.tab, env: spec.env ?? r.env, access: spec.access ?? r.access, model: spec.model ?? r.model, effort: spec.effort ?? r.effort, system: spec.system ?? r.system, set: spec.set ?? r.set, finished: false })
     r.started = Date.now()
-    if (!resume) r.sessionId = r.kind === 'codex' ? undefined : randomUUID()
+    if (!resume) r.sessionId = r.kind === 'codex' ? undefined : r.kind === 'opencode' ? `ses_${randomUUID().replaceAll('-', '')}` : randomUUID()
     // a run of its own: what its hooks record starts over
     if (r.hooks) this.hooks.forget(mirrored(r.hooks))
     r.hooks = undefined
@@ -582,8 +596,11 @@ export class Agents extends Emitter<Events> {
       const log = carryClaudeSession(id, r.cwd)
       if (log) r.logs = [...r.logs.filter((f) => !f.endsWith(`/${id}.jsonl`)), log]
     }
-    const pane = place ? await place() : await this.paneFor(r, was)
     const args = this.args(r, !!resume)
+    // A scoped launch environment applies to task worktree panes as well as coordinator tabs. Config contents
+    // inherited from the server are used only for this launch, never copied into agents.json.
+    const env = r.kind === 'opencode' ? openCodeEnv(modelArg(r.kind, r.model), r.env ?? {}, BOX ? undefined : process.env.OPENCODE_CONFIG_CONTENT) : r.env ?? {}
+    const pane = place ? await place(env) : await this.paneFor(r, was, env)
     this.save()
     // a new pane needs a moment before its shell is at the prompt
     for (let i = 0; ; i++) {
@@ -638,6 +655,16 @@ export class Agents extends Emitter<Events> {
       if (r.access !== 'ask') a.push('--dangerously-bypass-approvals-and-sandbox')
       if (model) a.push('-m', model)
       if (effort) a.push('-c', `model_reasoning_effort="${effort}"`)
+    } else if (r.kind === 'grok') {
+      if (r.sessionId) a.push(resume ? '--resume' : '--session-id', r.sessionId)
+      if (r.access !== 'ask') a.push('--always-approve')
+      if (model) a.push('--model', model)
+      if (effort) a.push('--reasoning-effort', effort)
+    } else if (r.kind === 'opencode') {
+      // OpenCode 2's full TUI reads the scoped config in its private server; --auto preserves explicit denials.
+      a.push('--standalone')
+      if (r.sessionId) a.push('--session', r.sessionId)
+      if (r.access !== 'ask') a.push('--auto')
     }
     return a
   }
@@ -711,8 +738,7 @@ export class Agents extends Emitter<Events> {
     return ws ?? old
   }
 
-  private async paneFor(r: AgentRecord, was?: string): Promise<string> {
-    const env = r.env ?? {}
+  private async paneFor(r: AgentRecord, was?: string, env = r.env ?? {}): Promise<string> {
     const ws = await this.space(r.workspace, was)
     if (!ws) return (await herdr.createWorkspace(r.workspace, r.cwd, env)).root_pane.pane_id
     return (await herdr.createTab(ws.workspace_id, r.tab ?? r.name, r.cwd, env)).root_pane.pane_id

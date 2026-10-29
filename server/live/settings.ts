@@ -34,8 +34,9 @@ function herdrKinds(): string[] {
 const NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', pi: 'pi', opencode: 'OpenCode', qodercli: 'Qoder', agy: 'Antigravity', omp: 'Oh My Pi', mastracode: 'Mastra Code', copilot: 'GitHub Copilot' }
 const nameOf = (kind: string) => NAMES[kind] ?? kind[0].toUpperCase() + kind.slice(1)
 const KINDS = herdrKinds()
-// the three with log readers first, then the rest as herdr lists them
-const ORDER = ['claude', 'codex', 'pi', ...KINDS.filter((k) => !['claude', 'codex', 'pi'].includes(k))].filter((k) => KINDS.includes(k))
+// The CLIs with log readers first, then the rest as herdr lists them.
+const READERS = ['claude', 'codex', 'pi', 'opencode', 'grok']
+const ORDER = [...READERS, ...KINDS.filter((k) => !READERS.includes(k))].filter((k) => KINDS.includes(k))
 
 export const CLIS: string[] = ORDER.map(nameOf)
 export const KIND: Record<string, string> = Object.fromEntries(ORDER.map((k) => [nameOf(k), k]))
@@ -54,7 +55,7 @@ export const EFFORTS = ['default', ...LEVELS]
 export { effortFor }
 
 /** the CLIs a brief's Review line may suggest for a task's review */
-export const REVIEWERS = ['Codex', 'Claude Code', 'pi']
+export const REVIEWERS = ['Codex', 'Claude Code', 'pi', 'OpenCode', 'Grok']
 
 /** Autopilot's heartbeat (Settings → Autopilot): its trigger, a time rule as kept ('off': none) and the news that
  *  wakes it at once, and the time zone of every time rule */

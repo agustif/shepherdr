@@ -4,9 +4,11 @@ import { closeSync, openSync, readSync, statSync } from 'node:fs'
 import { ClaudeReader } from './claude.ts'
 import { CodexReader } from './codex.ts'
 import { PiReader } from './pi.ts'
+import { GrokReader } from './grok.ts'
+import { OpenCodeReader } from './opencode.ts'
 import type { LogEvent, Reader } from './types.ts'
 
-export { ClaudeReader, CodexReader, PiReader }
+export { ClaudeReader, CodexReader, PiReader, GrokReader, OpenCodeReader }
 
 /** a fresh reader for herdr's agent kind (readers remember open questions and split replies per file) */
 export function readerFor(cli: string): Reader | undefined {
@@ -19,6 +21,10 @@ export function readerFor(cli: string): Reader | undefined {
       return new CodexReader()
     case 'pi':
       return new PiReader()
+    case 'grok':
+      return new GrokReader()
+    case 'opencode':
+      return new OpenCodeReader()
   }
   return undefined
 }

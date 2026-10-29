@@ -449,6 +449,12 @@ describe("a task's CLI, model and effort", () => {
     expect(src.agents.args(rec('codex', 'gpt-6-luna', 'ultra'), false)).toEqual(['--dangerously-bypass-approvals-and-sandbox', '-m', 'gpt-6-luna', '-c', 'model_reasoning_effort="max"'])
     expect(src.agents.args(rec('pi', 'openai/gpt-5.5', 'lowest'), false)).toEqual(['--model', 'openai/gpt-5.5', '--thinking', 'minimal'])
     expect(src.agents.args(rec('gemini', 'x', 'high'), false)).toEqual([])
+    const grok = { ...rec('grok', 'grok-test'), sessionId: '01234567-89ab-cdef-0123-456789abcdef' }
+    expect(src.agents.args(grok, false)).toEqual(['--session-id', grok.sessionId, '--always-approve', '--model', 'grok-test'])
+    expect(src.agents.args({ ...grok, access: 'ask' }, true)).toEqual(['--resume', grok.sessionId, '--model', 'grok-test'])
+    const opencode = { ...rec('opencode', 'provider/model'), sessionId: 'ses_example' }
+    expect(src.agents.args(opencode, false)).toEqual(['--standalone', '--session', 'ses_example', '--auto'])
+    expect(src.agents.args({ ...opencode, access: 'ask' }, true)).toEqual(['--standalone', '--session', 'ses_example'])
   })
 })
 

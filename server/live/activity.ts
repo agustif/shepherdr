@@ -203,6 +203,18 @@ export function outputAt(where: OutputAt, id: string): string | undefined {
   const blocks: Json[] = Array.isArray(l?.message?.content) ? l.message.content : []
   const r = blocks.find((b) => b?.type === 'tool_result' && b.tool_use_id === id)
   if (r) return diffOf(l.toolUseResult) ?? textOf(r.content)
+  // OpenCode's cached projection row carries all tool blocks of the assistant message.
+  const tool = blocks.find((b) => b?.type === 'tool' && `opencode-tool-${b.id}` === id)
+  if (tool) {
+    const error = tool.state?.error
+    return textOf(tool.state?.content) || (typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : typeof error?.data?.message === 'string' ? error.data.message : '')
+  }
+  // Grok persists the result in an ACP tool_call_update, with rich content nested one level deeper.
+  const update = l?.params?.update
+  if (update?.toolCallId === id) {
+    if (update.rawOutput !== undefined) return typeof update.rawOutput === 'string' ? update.rawOutput : JSON.stringify(update.rawOutput, null, 1)
+    return (Array.isArray(update.content) ? update.content : []).map((c: Json) => c?.type === 'content' ? textOf([c.content]) : '').filter(Boolean).join('\n')
+  }
   // Codex: the item, or the call's output
   const p = l?.payload
   const it = p?.item
@@ -308,9 +320,9 @@ function headlessLog(h: Headless, own: string[]): string | undefined {
 
 /** what it is in a few words: "codex exec: Review this change…" */
 function headlessTitle(argv: string[]): string {
-  const at = argv.findIndex((a) => /(^|\/)(codex|claude|pi)(\.(js|mjs|cjs))?$/.test(a))
+  const at = argv.findIndex((a) => /(^|\/)(codex|claude|pi|opencode|grok)(\.(js|mjs|cjs))?$/.test(a))
   const cli = (argv[at] ?? 'agent').split('/').at(-1)!.replace(/\.(js|mjs|cjs)$/, '')
-  const how = cli === 'codex' ? 'exec' : '-p'
+  const how = cli === 'codex' ? 'exec' : cli === 'opencode' ? 'run' : '-p'
   // its prompt: its longest word that is no flag
   const prompt = argv
     .slice(at + 1)

@@ -59,7 +59,7 @@ export type LogEvent =
   | { kind: 'job-end'; id: string; at: number }
 
 export interface Reader {
-  /** herdr's agent kind this reader is for: claude, codex, pi */
+  /** herdr's agent kind this reader is for */
   cli: string
   /**
    * Parses complete lines of a log file. `lines` never contains a partial last line; ids must be stable across

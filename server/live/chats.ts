@@ -9,7 +9,7 @@ import { stripHidden, type Agents, type OutItem } from './agents.ts'
 import { agentLines, excerpt, findQuoted, markerSoFar, parseBrowserNotes, parseReply, parseUserLine, userLines, type Parsed } from './chatlines.ts'
 import { shortUrl } from '../../shared/browser.ts'
 import { herdr } from './herdr.ts'
-import { logKind } from './readers/find.ts'
+import { logKind, refreshOpenCodeLog } from './readers/find.ts'
 import { LogTail, readerFor } from './readers/index.ts'
 import type { LogEvent } from './readers/types.ts'
 import type { Cut } from './retry.ts'
@@ -407,6 +407,7 @@ export class Chats {
     const all = this.events.get(key) ?? []
     const where = this.where.get(key) ?? new Map<string, number>()
     for (const f of r.logs) {
+      if (logKind(f) === 'opencode') refreshOpenCodeLog(f)
       if (!existsSync(f)) continue
       let t = this.tails.get(f)
       if (!t) {
@@ -421,7 +422,7 @@ export class Chats {
       left -= Math.max(0, t.done - was)
       for (const e of ev) {
         // a reply read in two pieces comes again with the same id and the full text: it replaces the first
-        const id = e.kind === 'agent' || e.kind === 'usage' ? `${e.kind}:${e.id}` : undefined
+        const id = e.kind === 'agent' || e.kind === 'user' || e.kind === 'usage' ? `${e.kind}:${e.id}` : undefined
         const i = id === undefined ? undefined : where.get(id)
         if (i !== undefined) all[i] = e
         else {

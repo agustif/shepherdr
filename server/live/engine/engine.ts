@@ -1125,7 +1125,7 @@ export class Engine extends Emitter<Events> {
       system: taskPrompt({ id: t.id, branch: t.branch!, base: t.base! }, pastTimes(this.data.tasks, t)),
       env,
       first,
-      pane: () => this.wt.agentPane({ home, wt: t.worktree!, label: labelOf(t), tab: 'Agent', env, made }),
+      pane: (launchEnv) => this.wt.agentPane({ home, wt: t.worktree!, label: labelOf(t), tab: 'Agent', env: launchEnv, made }),
     }
     return restart ? this.agents.restart(spec, restart) : this.agents.ensure(spec)
   }

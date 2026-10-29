@@ -532,7 +532,7 @@ describe('settings', () => {
     expect(s.set('task.effort', 'extreme').ok).toBe(false)
     expect(s.set('watcher.agent', 'Claude Code').error).toBe('No setting watcher.agent')
     // a reviewer needs a headless run review.sh knows
-    expect(s.set('reviewer.agent', 'Qwen').error).toBe('Pick one of: Codex · Claude Code · pi.')
+    expect(s.set('reviewer.agent', 'Qwen').error).toBe('Pick one of: Codex · Claude Code · pi · OpenCode · Grok.')
     // a model or effort level the CLI (and its model) doesn't take, with what it does
     expect(s.set('coordinator.model', 'opus 9').error).toBe('Claude Code has no model opus 9. Pick one of: default · Fable 5.1 · Opus 5.5 · Sonnet 5.5 · Haiku 5.5.')
     expect(s.set('coordinator.model', 'Opus 5.5').ok).toBe(true)

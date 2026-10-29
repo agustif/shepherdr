@@ -1,8 +1,24 @@
 // Each CLI's models and effort levels, as read from the CLI itself (models.ts): what its output looks like here
 import { describe, expect, test } from 'bun:test'
 import { effortFor, findModel, helpLevels, nearest, parseClaude, parseCodex, parsePi, setModels } from '../server/live/models.ts'
+import { parseOpenCode } from '../server/live/models-opencode.ts'
+import { parseGrok } from '../server/live/models-grok.ts'
 
 describe('reading what each CLI takes', () => {
+  test('OpenCode catalogs keep provider identities and do not invent effort support', () => {
+    const catalog = parseOpenCode('Refreshing model catalog\nopenai/model-a\nanthropic/model-b\nopenai/model-a\n')!
+    expect(catalog.models.map((model) => model.id)).toEqual(['openai/model-a', 'anthropic/model-b'])
+    expect(catalog.efforts).toEqual([])
+    expect(catalog.models.every((model) => !model.efforts.length)).toBe(true)
+    expect(parseOpenCode('No providers available')).toBeUndefined()
+  })
+  test('Grok catalogs ignore auth notices and preserve the advertised default', () => {
+    const catalog = parseGrok('You are not authenticated.\n\nDefault model: model-a\n\nAvailable models:\n  * model-a (default)\n  - model-b\n  - model-a\n')!
+    expect(catalog.models.map((model) => model.id)).toEqual(['model-a', 'model-b'])
+    expect(catalog.default).toBe('model-a')
+    expect(catalog.efforts).toEqual([])
+    expect(parseGrok('Error: Invalid configuration')).toBeUndefined()
+  })
   test("Claude Code's catalog: the newest of each family, its levels by capability, older ones by id", () => {
     const grep = [
       '{id:"claude-haiku-4-5",family:"haiku",display_name:"Haiku 4.5"',
