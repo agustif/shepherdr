@@ -5,6 +5,8 @@
 // can't tell, the table below holds. A level a model lacks becomes the nearest it has (nearest), never an error at start.
 import { realpathSync, statSync } from 'node:fs'
 import { readJson, writeJson } from '../store.ts'
+import { parseOpenCode } from './models-opencode.ts'
+import { parseGrok } from './models-grok.ts'
 
 export interface Model {
   /** what the CLI takes: claude-opus-5-5, gpt-6-sol, exe-dev-openai/gpt-4.1@llm */
@@ -53,6 +55,8 @@ export const TABLE: Record<string, CliModels> = {
   },
   // pi reaches many providers' models: only pi itself can list them
   pi: { models: [], efforts: PI_LEVELS },
+  opencode: { models: [], efforts: [] },
+  grok: { models: [], efforts: [] },
 }
 
 /** Claude Code's families as its /model menu offers them, newest of each; its aliases (opus, haiku) name these too */
@@ -166,6 +170,8 @@ async function read(kind: string, from?: string): Promise<CliModels | undefined>
     const [list, help] = await Promise.all([run(['pi', '--list-models']), run(['pi', '--help'])])
     return parsePi(list, help)
   }
+  if (kind === 'opencode') return parseOpenCode(await run(['opencode', 'models']))
+  if (kind === 'grok') return parseGrok(await run(['grok', 'models']))
   return undefined
 }
 

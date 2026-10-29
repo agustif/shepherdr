@@ -9,7 +9,7 @@ import { stripHidden, type Agents, type OutItem } from './agents.ts'
 import { agentLines, excerpt, findQuoted, markerSoFar, parseBrowserNotes, parseReply, parseUserLine, userLines, type Parsed } from './chatlines.ts'
 import { shortUrl } from '../../shared/browser.ts'
 import { herdr } from './herdr.ts'
-import { logKind } from './readers/find.ts'
+import { logKind, refreshOpenCodeLog } from './readers/find.ts'
 import { LogTail, readerFor } from './readers/index.ts'
 import type { LogEvent } from './readers/types.ts'
 import type { Cut } from './retry.ts'
@@ -17,6 +17,7 @@ import { findModel, modelsOf, nearest } from './models.ts'
 import { sameCommand } from './commands.ts'
 import { CLI_NAME } from './settings.ts'
 import { replyOnScreen } from './streaming.ts'
+import { openCodeMenu } from './opencode-menu.ts'
 import { activityOf, codexThreadLog, cutOutput, headlessJob, JobLogs, lastLine, lineOf, outputAt, shown as shownStep, tailOf, type JobRec } from './activity.ts'
 
 /** a chat line of yours that shows as words: an answer, a page's Send and words about an artifact under what they
@@ -407,6 +408,7 @@ export class Chats {
     const all = this.events.get(key) ?? []
     const where = this.where.get(key) ?? new Map<string, number>()
     for (const f of r.logs) {
+      if (logKind(f) === 'opencode') refreshOpenCodeLog(f)
       if (!existsSync(f)) continue
       let t = this.tails.get(f)
       if (!t) {
@@ -421,7 +423,7 @@ export class Chats {
       left -= Math.max(0, t.done - was)
       for (const e of ev) {
         // a reply read in two pieces comes again with the same id and the full text: it replaces the first
-        const id = e.kind === 'agent' || e.kind === 'usage' ? `${e.kind}:${e.id}` : undefined
+        const id = e.kind === 'agent' || e.kind === 'user' || e.kind === 'usage' ? `${e.kind}:${e.id}` : undefined
         const i = id === undefined ? undefined : where.get(id)
         if (i !== undefined) all[i] = e
         else {
@@ -517,7 +519,8 @@ export class Chats {
     const text = await herdr.visible(info.pane_id)
     // Some herdr versions call startup checkbox menus idle. Require a live menu footer before parsing those.
     const waiting = /(?:enter.*(?:confirm|select|continue)|space to select.*esc to reject|\[y\/n\]|\(y\/n\))/i.test(text.trimEnd().split('\n').slice(-3).join('\n'))
-    const parsed = st === 'blocked' || this.commandMenus.has(key) || waiting ? parseMenu(text) : null
+    const native = this.agents.record(key)?.kind === 'opencode' ? openCodeMenu(text) : null
+    const parsed = native ?? (st === 'blocked' || this.commandMenus.has(key) || waiting ? parseMenu(text) : null)
     const m = parsed ? { ...parsed, screen: parsed.screen ?? text.trim() } : st === 'blocked' && text.trim() ? { title: 'The terminal is waiting for you', choices: [], cursor: 0, screen: text.trim() } : null
     const before = JSON.stringify(this.menus.get(key) ?? null)
     if (m) this.menus.set(key, m)

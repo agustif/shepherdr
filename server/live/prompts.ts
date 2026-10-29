@@ -37,7 +37,7 @@ export interface Reviewer {
   effort?: string
 }
 
-const REVIEWER_NAME: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', pi: 'pi' }
+const REVIEWER_NAME: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', pi: 'pi', opencode: 'OpenCode', grok: 'Grok' }
 
 /** "a headless Codex or a Codex subagent (its default model and effort)", "… Claude Code … (model opus, high effort)" */
 export function reviewerWords(r: Reviewer) {

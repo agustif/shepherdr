@@ -3,6 +3,12 @@
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { BOX } from '../box.ts'
+import { HOME } from '../../store.ts'
+import { findGrokLog, grokHome, grokLogPath, grokSessionId } from './grok-files.ts'
+import { findOpenCodeLog, openCodeSessionId, refreshOpenCodeLog } from './opencode-log.ts'
+
+export { findGrokLog, grokHome, grokLogPath, grokSessionId, findOpenCodeLog, openCodeSessionId, refreshOpenCodeLog }
 
 const env = (k: string) => process.env[k] || undefined
 
@@ -151,11 +157,28 @@ export function piSessionDir(cwd: string): string {
 export const findPiLog = (cwd: string, sinceMs?: number) => newestLog(piSessionDir(cwd), sinceMs)
 
 /** the newest log of this CLI for this cwd */
-export function findLog(cli: string, cwd: string, sinceMs?: number): string | undefined {
-  if (cli === 'claude') return findClaudeLog(cwd, sinceMs)
+export function findLog(cli: string, cwd: string, sinceMs?: number, sessionId?: string): string | undefined {
+  if (cli === 'claude') return sessionId ? claudeLogPath(cwd, sessionId) : findClaudeLog(cwd, sinceMs)
   if (cli === 'codex') return findCodexLog(cwd, sinceMs)
   if (cli === 'pi') return findPiLog(cwd, sinceMs)
+  // These transports read this machine's native stores. A remote worker must never attach the main machine's
+  // sessions just because both machines have the same cwd; its ordinary herdr terminal remains available.
+  if (BOX) return undefined
+  if (cli === 'grok') {
+    if (!sessionId) return findGrokLog(cwd, sinceMs)
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) return undefined
+    const file = grokLogPath(cwd, sessionId)
+    return existsSync(file) ? file : undefined
+  }
+  if (cli === 'opencode') return findOpenCodeLog(cwd, sinceMs, sessionId)
   return undefined
+}
+
+/** Resume the session its own log identifies; Grok's filename alone is always updates.jsonl. */
+export function sessionIdForLog(cli: string, file: string): string | undefined {
+  if (cli === 'grok') return grokSessionId(file)
+  if (cli === 'opencode') return openCodeSessionId(file)
+  return file.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i)?.[1]
 }
 
 /** which CLI wrote this log, by where it lies: an agent a backup took over from has logs of two CLIs */
@@ -164,5 +187,7 @@ export function logKind(file: string): string | undefined {
   if (under(join(claudeHome(), 'projects'))) return 'claude'
   if (under(join(codexHome(), 'sessions'))) return 'codex'
   if (under(join(piHome(), 'sessions'))) return 'pi'
+  if (under(join(grokHome(), 'sessions'))) return 'grok'
+  if (under(join(HOME, 'opencode')) && openCodeSessionId(file)) return 'opencode'
   return undefined
 }
