@@ -353,7 +353,7 @@ describe("a task's CLI, model and effort", () => {
     execSync('git init -q -b main && git config user.email t@t && git config user.name T && echo hi > README.md && git add -A && git commit -qm init', { cwd: dir, shell: '/bin/sh' })
     const place = placeId.space((await src.places.add(dir, 'reviewer-source')).name)
     for (const [args, says] of <[string[], string][]>[
-      [['--reviewer', 'gemini'], '--reviewer gemini: Pick one of: Codex · Claude Code · pi.'],
+      [['--reviewer', 'gemini'], '--reviewer gemini: Pick one of: Codex · Claude Code · pi · OpenCode · Grok.'],
       [['--reviewer-effort', 'extreme'], '--reviewer-effort takes default, low, medium, high, xhigh, max, ultra on Codex'],
       [['--reviewer-model', 'opus'], 'Codex has no such model'],
     ]) {
