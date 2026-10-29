@@ -452,9 +452,11 @@ describe("a task's CLI, model and effort", () => {
     const grok = { ...rec('grok', 'grok-test'), sessionId: '01234567-89ab-cdef-0123-456789abcdef' }
     expect(src.agents.args(grok, false)).toEqual(['--session-id', grok.sessionId, '--always-approve', '--model', 'grok-test'])
     expect(src.agents.args({ ...grok, access: 'ask' }, true)).toEqual(['--resume', grok.sessionId, '--model', 'grok-test'])
+    expect(src.agents.args({ ...grok, access: undefined }, false)).not.toContain('--always-approve')
     const opencode = { ...rec('opencode', 'provider/model'), sessionId: 'ses_example' }
     expect(src.agents.args(opencode, false)).toEqual(['--standalone', '--session', 'ses_example', '--auto'])
     expect(src.agents.args({ ...opencode, access: 'ask' }, true)).toEqual(['--standalone', '--session', 'ses_example'])
+    expect(src.agents.args({ ...opencode, access: undefined }, false)).not.toContain('--auto')
   })
 })
 

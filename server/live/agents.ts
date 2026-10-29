@@ -657,14 +657,14 @@ export class Agents extends Emitter<Events> {
       if (effort) a.push('-c', `model_reasoning_effort="${effort}"`)
     } else if (r.kind === 'grok') {
       if (r.sessionId) a.push(resume ? '--resume' : '--session-id', r.sessionId)
-      if (r.access !== 'ask') a.push('--always-approve')
+      if (r.access === 'full') a.push('--always-approve')
       if (model) a.push('--model', model)
       if (effort) a.push('--reasoning-effort', effort)
     } else if (r.kind === 'opencode') {
       // OpenCode 2's full TUI reads the scoped config in its private server; --auto preserves explicit denials.
       a.push('--standalone')
       if (r.sessionId) a.push('--session', r.sessionId)
-      if (r.access !== 'ask') a.push('--auto')
+      if (r.access === 'full') a.push('--auto')
     }
     return a
   }

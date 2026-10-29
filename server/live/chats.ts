@@ -17,6 +17,7 @@ import { findModel, modelsOf, nearest } from './models.ts'
 import { sameCommand } from './commands.ts'
 import { CLI_NAME } from './settings.ts'
 import { replyOnScreen } from './streaming.ts'
+import { openCodeMenu } from './opencode-menu.ts'
 import { activityOf, codexThreadLog, cutOutput, headlessJob, JobLogs, lastLine, lineOf, outputAt, shown as shownStep, tailOf, type JobRec } from './activity.ts'
 
 /** a chat line of yours that shows as words: an answer, a page's Send and words about an artifact under what they
@@ -518,7 +519,8 @@ export class Chats {
     const text = await herdr.visible(info.pane_id)
     // Some herdr versions call startup checkbox menus idle. Require a live menu footer before parsing those.
     const waiting = /(?:enter.*(?:confirm|select|continue)|space to select.*esc to reject|\[y\/n\]|\(y\/n\))/i.test(text.trimEnd().split('\n').slice(-3).join('\n'))
-    const parsed = st === 'blocked' || this.commandMenus.has(key) || waiting ? parseMenu(text) : null
+    const native = this.agents.record(key)?.kind === 'opencode' ? openCodeMenu(text) : null
+    const parsed = native ?? (st === 'blocked' || this.commandMenus.has(key) || waiting ? parseMenu(text) : null)
     const m = parsed ? { ...parsed, screen: parsed.screen ?? text.trim() } : st === 'blocked' && text.trim() ? { title: 'The terminal is waiting for you', choices: [], cursor: 0, screen: text.trim() } : null
     const before = JSON.stringify(this.menus.get(key) ?? null)
     if (m) this.menus.set(key, m)

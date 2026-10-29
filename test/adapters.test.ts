@@ -11,9 +11,22 @@ const { openCodeEnv } = await import('../server/live/opencode-env.ts')
 const { outputAt } = await import('../server/live/activity.ts')
 const { readerFor } = await import('../server/live/readers/index.ts')
 const { sessionIdForLog } = await import('../server/live/readers/find.ts')
+const { openCodeMenu } = await import('../server/live/opencode-menu.ts')
+const { startsSession } = await import('../server/live/commands.ts')
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 describe('native agent integration', () => {
+  test('OpenCode sign-in dialogs hold messages even when herdr reports idle', () => {
+    expect(openCodeMenu('     Connect an integration              esc\n\n     No integrations found\n')).toMatchObject({ title: 'Connect an integration in OpenCode', choices: [] })
+    expect(openCodeMenu('The docs say Connect an integration, then press esc.')).toBeNull()
+    expect(openCodeMenu('Connect an integration\nA normal response without a modal close control')).toBeNull()
+  })
+  test('new-session commands trigger native log discovery for both added CLIs', () => {
+    expect(startsSession('opencode', '/new')).toBe(true)
+    expect(startsSession('grok', '/new')).toBe(true)
+    expect(startsSession('grok', '/resume')).toBe(true)
+    expect(startsSession('opencode', '/model')).toBe(false)
+  })
   test('OpenCode model config keeps inherited permissions and never mutates its input', () => {
     const env = { SHEPHERDR_CHAT: 'chat', OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { '*': 'deny' }, model: 'old/model' }) }
     const before = { ...env }

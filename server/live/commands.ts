@@ -25,6 +25,8 @@ const SESSION: Record<string, string[]> = {
   claude: ['clear', 'reset', 'new', 'resume', 'continue', 'branch', 'fork'],
   codex: ['new', 'clear', 'resume', 'fork'],
   pi: ['new', 'resume', 'fork', 'tree'],
+  opencode: ['new'],
+  grok: ['new', 'clear', 'resume'],
 }
 
 /** does this command start (or switch to) another session of its CLI */

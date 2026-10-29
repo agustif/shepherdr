@@ -26,7 +26,8 @@ on the machine where it runs; choosing an agent never copies another CLI's crede
 
 OpenCode starts its full TUI with a private server and an explicit session ID. A selected model goes into a scoped
 `OPENCODE_CONFIG_CONTENT` environment; its configuration files stay intact. Grok receives its own session/resume
-and model flags. Task worktrees use each CLI's automatic permission mode; coordinators retain native approvals.
+and model flags. Task worktrees use each CLI's automatic permission mode; coordinators keep the CLI's configured
+permission behavior.
 Neither model-list command advertises per-model effort capabilities, so these two agents use their CLI's effort
 default. OpenCode model variants can also be configured in OpenCode itself.
 
@@ -41,6 +42,7 @@ prompts remain available through the terminal, including Grok requests that are 
 
 Authenticate through each CLI, for example `opencode auth login` or `grok login`. Authentication is a separate
 step from installing the CLI or selecting it in Settings.
+OpenCode's startup integration dialog appears as a terminal card, and queued messages wait until it is closed.
 
 OpenCode's adapter follows the [v2.1.4 schema](https://github.com/anomalyco/opencode/blob/v2.1.4/packages/schema/src/session-message.ts).
 Grok's adapter follows installed 1.0.70 ACP notifications and the [upstream agent protocol](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/15-agent-mode.md).
